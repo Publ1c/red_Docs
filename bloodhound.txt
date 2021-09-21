@@ -1,0 +1,7 @@
+#startup neo4j db as sudo or....#
+./neo4j console 
+
+#startup bloodhound
+./BloodHound.bin --no-sandbox
+
+

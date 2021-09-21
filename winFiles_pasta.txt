@@ -1,0 +1,4 @@
+#interacting with files of interest
+file <file>
+libreoffice <file> 
+exiftool <file>

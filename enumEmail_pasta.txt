@@ -1,0 +1,22 @@
+#HELO validates domain and used once before MAIL FROM
+HELO publ1c.com
+
+#MAIL from
+MAIL FROM:<publ1c@reel.htb>
+
+#rcpt to....can use this to validate users and rules (user vs domain permissions)
+RCPT TO:<nico@megabank.com>
+250 OK
+RCPT TO:<reel@megabank.com>
+550 Unknown user
+
+RCPT TO:<nico@reel.htb>
+250 OK
+RCPT TO:<jajajajaja@reel.htb>
+250 OK
+
+
+#smtp-user-enum
+smtp-user-enum.pl -M VRFY -U test-users.txt -t <ip>
+smtp-user-enum.pl -M EXPN -U test-users.txt -t <ip>
+smtp-user-enum.pl -M RCPT -U test-users.txt -t <ip>
