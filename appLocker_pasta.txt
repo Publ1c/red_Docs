@@ -1,0 +1,4 @@
+#cant run .ps1 straight from shell?
+#load content and invoke its functions
+Get-Content SharpHound.ps1 -raw | IEX 
+Invoke-BloodHound -CollectionMethod All

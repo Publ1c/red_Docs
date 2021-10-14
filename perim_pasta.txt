@@ -1,5 +1,5 @@
 #scan all TCP ports
-sudo nmap -sS -p- -oX allTCP <IP>
+sudo nmap -sT -p- -oX allTCP <IP>
 
 #scan tgt ports
 sudo nmap -sV -sC -p 21,22,25 -oX tgtTCP <IP>

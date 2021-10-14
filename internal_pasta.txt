@@ -1,0 +1,22 @@
+---------------------------------------------------------------------Discovery and Enum--------------------------------------------------------------------------------
+#scan all TCP ports
+sudo nmap -sT -p- -oX allTCP <IP>
+
+#scan tgt ports
+sudo nmap -sV -sC -p 21,22,25 -oX tgtTCP <IP>
+
+---------------------------------------------------------------------Discover DC---------------------------------------------------------------------------------------
+#nbtscan for DC name
+sudo nbtscan -vr 192.168.26.0/24
+
+#nmap scan for DC by kerberos traffic
+nmap -sT -Pn --open -p 88 192.168.26.0/24
+
+#nmap scan for DC by ldap global catalog service traffic
+nmap -sT -Pn --open -p 389,636,3268,3269 192.168.26.0/24
+
+#From a compromised windows machine
+echo %logonserver%
+nltest /dclist:evilcorp.local
+
+
